@@ -9,19 +9,83 @@ static int minor_base=0;
 static int num_minor=1;
 #define NODE_NAME "unko"
 #define SUCCESS 0
-
+static const char *unko_mp3 = "/usr/share/sounds/unko/unko.mp3";
 static unsigned int major_num;
-
 static struct cdev unko_cdev;
-
-MODULE_LICENSE("MIT");
-
 static unsigned char k_buf[] = "unko!";
-
+MODULE_LICENSE("GPL");
 
 static int unko_open(struct inode *inode, struct file *file) {
     printk("unko open\n");
     return SUCCESS;
+}
+
+struct file *file_open(const char *path, int flags, int rights, int *err) 
+{
+    struct file *filp = NULL;
+    mm_segment_t oldfs;
+    *err = 0;
+
+    oldfs = get_fs();
+    set_fs(get_ds());
+    printk("filp open\n");
+    filp = filp_open(path, flags, rights);
+    printk("filp open end\n");
+    set_fs(oldfs);
+    if (IS_ERR(filp)) {
+        printk("filp open error\n");
+        *err = PTR_ERR(filp);
+        return NULL;
+    }
+    return filp;
+}
+
+void file_close(struct file *file) 
+{
+    filp_close(file, NULL);
+}
+
+int file_read(struct file *file, unsigned long long offset, unsigned char *data, unsigned int size) 
+{
+    printk("file_read start\n");
+    mm_segment_t oldfs;
+    int ret;
+
+    oldfs = get_fs();
+    set_fs(get_ds());
+
+    printk("start vfs_read\n");
+    ret = vfs_read(file, data, size, &offset);
+    printk("end vfs_read\n");
+
+    set_fs(oldfs);
+    return ret;
+}   
+
+int play_unko(void) {
+    int err = 0;
+    struct file *f = file_open(unko_mp3, O_RDONLY, 0, &err);
+    printk("file_open end\n");
+    if (f == NULL) {
+        printk("can't open mp3 file. reason; err:%d\n", err);
+        return 0;
+    }
+
+    char data[1024000]; // read buffer
+    printk("data buffer\n");
+    int ret = file_read(f, 0, &data[0], sizeof(data));
+    if (ret == 0) {
+        goto close;
+    }
+    if (ret < 0) {
+        printk("can't read file; err:%d\n", ret);
+        goto close;
+    }
+
+close:
+    printk("close. ret:%d\n", ret);
+    file_close(f);
+    return ret;
 }
 
 static ssize_t unko_read(struct file *file, char __user *buf, size_t count, loff_t *f_pos) {
@@ -40,6 +104,8 @@ static ssize_t unko_read(struct file *file, char __user *buf, size_t count, loff
         return -EFAULT;
     }
     *f_pos += len;
+
+    play_unko();
 
     return len;
 }
